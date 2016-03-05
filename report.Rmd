@@ -1,0 +1,94 @@
+---
+title: Practical Machine Learning Project - Quantified Self Movement Data Analysis
+  Report
+author: "by Donatella Biancone"
+---
+
+## Introduction  
+Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the quantified self movement – a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it.  
+
+In this project, we will use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants to predict the manner in which they did the exercise.
+
+## Data Preprocessing 
+```{r}
+library(Hmisc)
+library(caret)
+library(randomForest)
+library(foreach)
+library(doParallel)
+library(e1071)
+options(warn=-1)
+```
+
+
+## Getting and Loading Data
+```{r}
+set.seed(2048)
+trainUrl <- "http://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
+testUrl <- "http://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"
+
+training <- read.csv(url(trainUrl), na.strings=c("NA","#DIV/0!",""))
+testing <- read.csv(url(testUrl), na.strings=c("NA","#DIV/0!",""))
+```
+
+## Data Cleaning
+```{r}
+for(i in c(8:ncol(training)-1)) {training[,i] = as.numeric(as.character(training[,i]))}
+
+for(i in c(8:ncol(testing)-1)) {testing[,i] = as.numeric(as.character(testing[,i]))}
+```
+We remove NAs
+```{r}
+featureSet <- colnames(training[colSums(is.na(training)) == 0])[-(1:7)]
+trainData <- training[featureSet]
+featureSet
+```
+
+## Split the data
+We can split the training set into two
+```{r}
+idx <- createDataPartition(y=trainData$classe, p=0.75, list=FALSE )
+training <- trainData[idx,]
+testing <- trainData[-idx,]
+```
+
+We now build 5 random forests with 150 trees each. We make use of parallel processing to build this model. 
+```{r}
+registerDoParallel()
+x <- training[-ncol(training)]
+y <- training$classe
+
+rf <- foreach(ntree=rep(150, 6), .combine=randomForest::combine, .packages='randomForest') %dopar% {
+randomForest(x, y, ntree=ntree) 
+}
+
+predictions1 <- predict(rf, newdata=training)
+confusionMatrix(predictions1,training$classe)
+```
+
+## Predicting for Test Data Set
+Now, we apply the model to the original testing data set downloaded from the data source.  
+```{r}
+predictions2 <- predict(rf, newdata=testing)
+confusionMatrix(predictions2,testing$classe)
+```
+
+## Write the results to a text file for submission
+```{r}
+pml_write_files = function(x){
+  n = length(x)
+  for(i in 1:n){
+    filename = paste0("problem_id_",i,".txt")
+    write.table(x[i],file=filename,quote=FALSE,row.names=FALSE,col.names=FALSE)
+  }
+}
+
+
+x <- testing
+x <- x[featureSet[featureSet!='classe']]
+answers <- predict(rf, newdata=x)
+
+answers
+
+pml_write_files(answers)
+```
